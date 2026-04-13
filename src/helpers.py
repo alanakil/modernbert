@@ -1,5 +1,54 @@
 # %%
+import numpy as np
 import torch
+from scipy.special import softmax
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+
+
+# %%
+def compute_metrics(logits, labels, label_names):
+    """Compute classification metrics from raw logits and integer labels.
+
+    Args:
+        logits: numpy array of shape (n_samples, n_classes)
+        labels: numpy array of shape (n_samples,) with integer class indices
+        label_names: list of class name strings, length n_classes
+
+    Returns:
+        dict with keys: accuracy, macro_precision, macro_recall, macro_f1,
+        auc_roc, and f1_class_0 … f1_class_{n-1}
+    """
+    predicted = np.argmax(logits, axis=1)
+    probs = softmax(logits, axis=1)
+
+    accuracy = accuracy_score(labels, predicted)
+    macro_precision = precision_score(labels, predicted, average="macro", zero_division=0)
+    macro_recall = recall_score(labels, predicted, average="macro", zero_division=0)
+    macro_f1 = f1_score(labels, predicted, average="macro", zero_division=0)
+    per_class_f1 = f1_score(labels, predicted, average=None, zero_division=0)
+
+    try:
+        auc_roc = roc_auc_score(labels, probs, multi_class="ovr", average="macro")
+    except Exception:
+        auc_roc = float("nan")
+
+    result = {
+        "accuracy": accuracy,
+        "macro_precision": macro_precision,
+        "macro_recall": macro_recall,
+        "macro_f1": macro_f1,
+        "auc_roc": auc_roc,
+    }
+    for i, f1 in enumerate(per_class_f1):
+        result[f"f1_class_{i}"] = f1
+
+    return result
 
 
 # %%
