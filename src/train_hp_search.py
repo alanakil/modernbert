@@ -9,12 +9,13 @@ Search space:
   lr_scheduler_type:  categorical ["linear", "cosine"]
   classifier_dropout: categorical [0.0, 0.1, 0.2]
 
-Fixed: max_length=512, effective batch=256, 10 epochs, 20% stratified subsample.
+Fixed: max_length=512, effective batch=256, 10 epochs, 20% stratified
+subsample.
 
 Outputs (per model):
-  results/results_11_hp_search/{model}_trials.csv  — all trial metrics
-  results/results_11_hp_search/{model}_best.json   — winning HP set
-  results/results_11_hp_search/{model}_optuna.db   — Optuna journal (resume-safe)
+  results/results_11_hp_search/{model}_trials.csv — all trial metrics
+  results/results_11_hp_search/{model}_best.json  — winning HP set
+  results/results_11_hp_search/{model}_optuna.db  — Optuna journal (resume)
 
 Note: eval loss is optimised on the test split (same split used for final
 reporting). This is standard practice for public benchmarks and is acknowledged
@@ -143,7 +144,9 @@ def subsample_dataset(dataset, fraction: float, seed: int = 42):
     n_per_class = max(1, n // len(classes))
     for c in classes:
         class_idx = np.where(labels == c)[0]
-        chosen = rng.choice(class_idx, size=min(n_per_class, len(class_idx)), replace=False)
+        chosen = rng.choice(
+            class_idx, size=min(n_per_class, len(class_idx)), replace=False
+        )
         indices.extend(chosen.tolist())
     remaining = list(set(range(len(dataset))) - set(indices))
     if len(indices) < n:
@@ -156,9 +159,13 @@ def tokenize_dataset(newsgroups, tokenizer, max_length: int):
     def tok(batch):
         return tokenizer(batch["text"], truncation=True, max_length=max_length)
 
-    encoded = newsgroups.map(tok, batched=True, remove_columns=["text", "label_text"])
+    encoded = newsgroups.map(
+        tok, batched=True, remove_columns=["text", "label_text"]
+    )
     encoded = encoded.rename_column("label", "labels")
-    encoded.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+    encoded.set_format(
+        type="torch", columns=["input_ids", "attention_mask", "labels"]
+    )
     return encoded
 
 
@@ -166,13 +173,13 @@ def tokenize_dataset(newsgroups, tokenizer, max_length: int):
 # Optuna pruning callback
 # ---------------------------------------------------------------------------
 class OptunaPruningCallback(TrainerCallback):
-    """Reports eval_loss to Optuna after each epoch; stops training if pruned."""
+    """Reports eval_loss to Optuna after each epoch; stops if pruned."""
 
     def __init__(self, trial: optuna.Trial):
         self.trial = trial
         self.pruned = False
 
-    def on_evaluate(self, args, state, control, metrics, **kwargs):
+    def on_evaluate(self, args, state, control, metrics, **kwargs):  # noqa
         epoch = int(state.epoch)
         value = metrics.get("eval_loss")
         if value is not None:
@@ -211,8 +218,12 @@ def objective(
     lr = trial.suggest_float("learning_rate", 1e-5, 3e-4, log=True)
     weight_decay = trial.suggest_categorical("weight_decay", [0.0, 0.01, 0.1])
     warmup_ratio = trial.suggest_float("warmup_ratio", 0.0, 0.1)
-    scheduler = trial.suggest_categorical("lr_scheduler_type", ["linear", "cosine"])
-    classifier_dropout = trial.suggest_categorical("classifier_dropout", [0.0, 0.1, 0.2])
+    scheduler = trial.suggest_categorical(
+        "lr_scheduler_type", ["linear", "cosine"]
+    )
+    classifier_dropout = trial.suggest_categorical(
+        "classifier_dropout", [0.0, 0.1, 0.2]
+    )
 
     set_seed(SEED)
 
@@ -225,7 +236,9 @@ def objective(
     if hasattr(config, "classifier_dropout"):
         config.classifier_dropout = classifier_dropout
 
-    model = AutoModelForSequenceClassification.from_pretrained(model_id, config=config)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_id, config=config
+    )
     model.gradient_checkpointing_enable()
     model.to(device)
 
@@ -269,8 +282,9 @@ def objective(
 
     # --- Handle pruned trial ----------------------------------------------
     if pruning_cb.pruned:
-        last_step = max(trial.intermediate_values.keys()) if trial.intermediate_values else None
-        last_loss = trial.intermediate_values[last_step] if last_step is not None else float("nan")
+        iv = trial.intermediate_values
+        last_step = max(iv.keys()) if iv else None
+        last_loss = iv[last_step] if last_step is not None else float("nan")
         row = {
             "trial_number": trial.number,
             "model": model_key,
@@ -358,11 +372,18 @@ def run_study(
         load_if_exists=True,
     )
 
-    n_complete = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+    complete_states = [
+        t for t in study.trials
+        if t.state == optuna.trial.TrialState.COMPLETE
+    ]
+    n_complete = len(complete_states)
     remaining = N_TRIALS - n_complete
 
     print(f"\n{'='*70}")
-    print(f"Optuna study: {model_key}  |  complete={n_complete}  remaining={remaining}")
+    print(
+        f"Optuna study: {model_key}  |  "
+        f"complete={n_complete}  remaining={remaining}"
+    )
     print(f"Storage: {db_path}")
     print(f"{'='*70}")
 
@@ -396,7 +417,9 @@ def run_study(
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="HP search for BERT / ModernBERT")
+    parser = argparse.ArgumentParser(
+        description="HP search for BERT / ModernBERT"
+    )
     parser.add_argument(
         "--model",
         choices=["bert", "modernbert", "all"],
@@ -424,14 +447,19 @@ def main():
     label_names = sorted(set(newsgroups["train"]["label_text"]))
 
     n_before = len(newsgroups["train"])
-    newsgroups["train"] = subsample_dataset(newsgroups["train"], TRAIN_SUBSAMPLE, seed=SEED)
+    newsgroups["train"] = subsample_dataset(
+        newsgroups["train"], TRAIN_SUBSAMPLE, seed=SEED
+    )
     print(
         f"\nDataset: {num_labels} classes  |  "
         f"train subsampled: {n_before} → {len(newsgroups['train'])} "
         f"({TRAIN_SUBSAMPLE:.0%}, stratified)"
     )
 
-    models_to_run = MODELS if args.model == "all" else {args.model: MODELS[args.model]}
+    if args.model == "all":
+        models_to_run = MODELS
+    else:
+        models_to_run = {args.model: MODELS[args.model]}
 
     all_best = {}
     for model_key, model_id in models_to_run.items():
